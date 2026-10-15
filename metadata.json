@@ -1,0 +1,6 @@
+{
+  "name": "Unfold",
+  "description": "Offline PDF reader & audiobook player. Read, listen, and download.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
