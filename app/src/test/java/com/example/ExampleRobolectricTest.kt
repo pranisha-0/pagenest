@@ -214,4 +214,27 @@ class ExampleRobolectricTest {
     val afterBookDelete = repository.getAnnotationsForPage(bookId, 3).first()
     assertEquals(0, afterBookDelete.size)
   }
+
+  @Test
+  fun `pdf structure parser deduplicates identical paragraphs and overlapping text`() {
+    val repeatedText = """
+      "Because I don't live in either my past or my future. I'm interested only in the present."
+
+      on the march, I just concentrate on marching. If I have to fight, it will be just as good a day to die as any other.
+
+      "Because I don't live in either my past or my future. I'm interested only in the present."
+    """.trimIndent()
+
+    val structured = PdfStructureParser.reconstructPageStructure(
+      rawPageText = repeatedText,
+      pageNumber = 65,
+      documentTitle = "The Alchemist"
+    )
+
+    // The repeated paragraph must appear strictly once
+    val firstIndex = structured.indexOf("Because I don't live in either my past or my future")
+    val lastIndex = structured.lastIndexOf("Because I don't live in either my past or my future")
+    assertEquals("Paragraph must appear only once", firstIndex, lastIndex)
+    assertTrue(structured.contains("on the march, I just concentrate on marching"))
+  }
 }

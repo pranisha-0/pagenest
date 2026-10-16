@@ -325,12 +325,12 @@ object PdfManager {
           line.contains("introduction", ignoreCase = true) ||
           line.contains("epilogue", ignoreCase = true) ||
           line.contains("prologue", ignoreCase = true) ||
-          (line.length in 4..50 && line == line.uppercase() && line.any { it.isLetter() })
+          (line.length in 4..50 && line == line.uppercase() && line.any { it.isLetter() } && !line.endsWith("."))
       ) {
         return line
       }
     }
-    return firstLines.firstOrNull { it.length in 4..45 } ?: "Page $pageNumber"
+    return "Page $pageNumber"
   }
 
   /**

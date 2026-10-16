@@ -904,11 +904,6 @@ private fun CleanReaderPage(
     }
   }
 
-  // Check for authentic non-page chapter title
-  val rawChapter = pageText?.chapterTitle?.trim() ?: ""
-  val isRealChapterTitle = rawChapter.isNotBlank() &&
-    !rawChapter.startsWith("Page", ignoreCase = true) &&
-    rawChapter != "Chapter $pageNumber"
 
   Box(modifier = Modifier.fillMaxSize()) {
     Column(
@@ -917,19 +912,6 @@ private fun CleanReaderPage(
         .verticalScroll(scrollState)
         .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 16.dp)
     ) {
-      // Display authentic chapter title at top ONLY if not "Page X"
-      if (isRealChapterTitle) {
-        Text(
-          text = rawChapter,
-          style = MaterialTheme.typography.titleMedium.copy(
-            fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-            fontSize = (fontSize + 3).sp
-          ),
-          modifier = Modifier.padding(bottom = 14.dp)
-        )
-      }
 
       if (fullText.isBlank()) {
         Box(
@@ -1181,23 +1163,7 @@ private fun CleanReaderPagePreview(
         .fillMaxSize()
         .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 16.dp)
     ) {
-      val rawChapter = pageText?.chapterTitle?.trim() ?: ""
-      val isRealChapterTitle = rawChapter.isNotBlank() &&
-        !rawChapter.startsWith("Page", ignoreCase = true) &&
-        rawChapter != "Chapter $pageNumber"
 
-      if (isRealChapterTitle) {
-        Text(
-          text = rawChapter,
-          style = MaterialTheme.typography.titleMedium.copy(
-            fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-            fontSize = (fontSize + 3).sp
-          ),
-          modifier = Modifier.padding(bottom = 14.dp)
-        )
-      }
 
       Text(
         text = fullText,

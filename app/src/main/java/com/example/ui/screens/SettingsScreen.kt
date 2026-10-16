@@ -68,7 +68,6 @@ fun SettingsScreen(
   val storageBytes by viewModel.storageUsageBytes.collectAsState()
   val playbackState by viewModel.playbackState.collectAsState()
 
-  var downloadOfflineEnabled by remember { mutableStateOf(true) }
   var showThemeDialog by remember { mutableStateOf(false) }
   var showVoiceDialog by remember { mutableStateOf(false) }
   var showStorageDialog by remember { mutableStateOf(false) }
@@ -134,45 +133,13 @@ fun SettingsScreen(
 
           SettingsDivider()
 
-          // Download for Offline toggle
-          Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-          ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              Icon(
-                imageVector = Icons.Default.Download,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-              )
-              Spacer(modifier = Modifier.width(14.dp))
-              Column {
-                Text(
-                  text = "Download for Offline",
-                  style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
-                )
-                Text(
-                  text = "Always cache text & audio metadata",
-                  style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
-                )
-              }
-            }
-
-            Switch(
-              checked = downloadOfflineEnabled,
-              onCheckedChange = { downloadOfflineEnabled = it },
-              colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = MaterialTheme.colorScheme.primary
-              )
-            )
-          }
-
-          SettingsDivider()
+          // Storage Option
+          SettingsRow(
+            icon = Icons.Default.Storage,
+            title = "Storage",
+            subtitle = "$storageMb used",
+            onClick = { showStorageDialog = true }
+          )
 
           // Storage Option
           SettingsRow(

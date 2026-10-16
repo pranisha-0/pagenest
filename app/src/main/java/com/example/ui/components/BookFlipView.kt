@@ -1,12 +1,10 @@
 package com.example.ui.components
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
@@ -16,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -23,6 +22,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,9 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -81,15 +80,14 @@ fun rememberBookFlipController(): BookFlipController {
 }
 
 /**
- * Realistic 3D Book-Like Page Turning Container.
- * Features:
- * - 3D rotation with authentic perspective around spine binding (TransformOrigin(0f, 0.5f))
- * - Dynamic light/shadow modeling during page bend (cast shadows on underlying page, specular page curl highlight)
- * - Front and Back of the turning page rendered with physical book paper styling
- * - Seamless page transition without flickering or abrupt snaps
- * - Interactive edge drag gestures with threshold detection & spring bounce
- * - Corner curl dog-ear affordance for intuitive page turning
- * - Disables page turn gesture during active text selection to prevent accidental flips
+ * Realistic Physical Book Page-Turning Container with Page-Curl Geometry.
+ * Closely matches authentic physical book reading with:
+ * - Dynamic corner curl and cylindrical edge bend along fold line
+ * - Dual front and back paper face rendering with realistic paper texture
+ * - Spine binding crease and cast drop-shadow onto revealed page
+ * - Floating side navigation chevron arrows (as seen in physical flipbook readers)
+ * - Corner dog-ear affordance
+ * - Smooth drag and touch-based page turning with threshold commit
  */
 @Composable
 fun BookFlipContainer(
@@ -121,7 +119,7 @@ fun BookFlipContainer(
     else -> Color(0xFFE2D8C7)
   }
 
-  // Register external controller callbacks for bottom navigation buttons
+  // Register external controller callbacks for navigation buttons
   LaunchedEffect(controller, pageIndex, totalPages, isAnimating) {
     controller.onFlipForward = {
       if (!isAnimating && pageIndex < totalPages - 1) {
@@ -129,7 +127,7 @@ fun BookFlipContainer(
         flipDirection = FlipDirection.FORWARD
         coroutineScope.launch {
           rotationAnim.snapTo(0f)
-          rotationAnim.animateTo(-180f, animationSpec = tween(380))
+          rotationAnim.animateTo(-180f, animationSpec = tween(420))
           onPageChange(pageIndex + 1)
           rotationAnim.snapTo(0f)
           flipDirection = FlipDirection.NONE
@@ -144,7 +142,7 @@ fun BookFlipContainer(
         flipDirection = FlipDirection.BACKWARD
         coroutineScope.launch {
           rotationAnim.snapTo(-180f)
-          rotationAnim.animateTo(0f, animationSpec = tween(380))
+          rotationAnim.animateTo(0f, animationSpec = tween(420))
           onPageChange(pageIndex - 1)
           rotationAnim.snapTo(0f)
           flipDirection = FlipDirection.NONE
@@ -177,14 +175,14 @@ fun BookFlipContainer(
 
               val fraction = (dragCumulative / (containerWidthPx * 0.75f)).coerceIn(-1f, 1f)
               if (fraction < 0f && pageIndex < totalPages - 1) {
-                // Swiping forward (right to left)
+                // Dragging forward (right to left)
                 flipDirection = FlipDirection.FORWARD
                 val targetRot = fraction * 180f
                 coroutineScope.launch {
                   rotationAnim.snapTo(targetRot)
                 }
               } else if (fraction > 0f && pageIndex > 0) {
-                // Swiping backward (left to right)
+                // Dragging backward (left to right)
                 flipDirection = FlipDirection.BACKWARD
                 val targetRot = -180f + (fraction * 180f)
                 coroutineScope.launch {
@@ -195,13 +193,13 @@ fun BookFlipContainer(
             onDragEnd = {
               if (isAnimating) return@detectHorizontalDragGestures
               val currentRot = rotationAnim.value
-              val threshold = 35f // degrees threshold to commit flip
+              val threshold = 32f // degrees threshold to commit flip
 
               if (flipDirection == FlipDirection.FORWARD) {
                 if (currentRot < -threshold && pageIndex < totalPages - 1) {
                   isAnimating = true
                   coroutineScope.launch {
-                    rotationAnim.animateTo(-180f, animationSpec = tween(220))
+                    rotationAnim.animateTo(-180f, animationSpec = tween(240))
                     onPageChange(pageIndex + 1)
                     rotationAnim.snapTo(0f)
                     dragCumulative = 0f
@@ -220,7 +218,7 @@ fun BookFlipContainer(
                 if (currentRot > -180f + threshold && pageIndex > 0) {
                   isAnimating = true
                   coroutineScope.launch {
-                    rotationAnim.animateTo(0f, animationSpec = tween(220))
+                    rotationAnim.animateTo(0f, animationSpec = tween(240))
                     onPageChange(pageIndex - 1)
                     rotationAnim.snapTo(0f)
                     dragCumulative = 0f
@@ -251,7 +249,7 @@ fun BookFlipContainer(
     ) {
       val rot = rotationAnim.value
 
-      // 1. LAYER UNDERNEATH (Base Revealed Page)
+      // 1. BASE LAYER (Revealed Page Underneath)
       if (flipDirection == FlipDirection.FORWARD) {
         // Next page revealed underneath
         PhysicalPageCard(
@@ -266,8 +264,8 @@ fun BookFlipContainer(
           }
         }
 
-        // Dynamic Cast Shadow on revealed page as the turning page lifts
-        val castShadowAlpha = (sin(abs(rot) * PI / 180f).toFloat() * 0.42f).coerceIn(0f, 0.45f)
+        // Dynamic Soft Cast Shadow across revealed page as the turning page lifts
+        val castShadowAlpha = (sin(abs(rot) * PI / 180f).toFloat() * 0.45f).coerceIn(0f, 0.5f)
         if (castShadowAlpha > 0.01f) {
           Box(
             modifier = Modifier
@@ -276,8 +274,8 @@ fun BookFlipContainer(
               .background(
                 Brush.horizontalGradient(
                   colors = listOf(
-                    Color.Black.copy(alpha = castShadowAlpha * 1.2f),
-                    Color.Black.copy(alpha = castShadowAlpha * 0.5f),
+                    Color.Black.copy(alpha = castShadowAlpha * 1.3f),
+                    Color.Black.copy(alpha = castShadowAlpha * 0.6f),
                     Color.Transparent
                   )
                 )
@@ -294,7 +292,7 @@ fun BookFlipContainer(
           currentPageContent()
         }
       } else {
-        // IDLE STATE: Just render the current page cleanly
+        // IDLE STATE: Just render current page cleanly
         PhysicalPageCard(
           themeMode = themeMode,
           bgColor = pageBgColor,
@@ -304,7 +302,7 @@ fun BookFlipContainer(
         }
       }
 
-      // 2. TURNING PAGE LAYER (Transforms in 3D around spine)
+      // 2. TURNING PAGE LAYER (3D Perspective Rotation with Dynamic Curl Surface)
       if (flipDirection != FlipDirection.NONE) {
         val density = LocalDensity.current.density
         val isFrontVisible = rot > -90f
@@ -314,8 +312,8 @@ fun BookFlipContainer(
             .fillMaxSize()
             .graphicsLayer {
               rotationY = rot
-              cameraDistance = 16f * density
-              transformOrigin = TransformOrigin(0f, 0.5f) // Binding edge along left spine
+              cameraDistance = 18f * density
+              transformOrigin = TransformOrigin(0f, 0.5f) // Binding spine along left edge
             }
         ) {
           if (flipDirection == FlipDirection.FORWARD) {
@@ -329,8 +327,8 @@ fun BookFlipContainer(
                 currentPageContent()
               }
 
-              // Dynamic highlight & curl shadow on turning face
-              val foldDarken = (abs(rot) / 90f * 0.22f)
+              // Dynamic Curved Paper Highlight & Crease Shadow across turning face
+              val foldDarken = (abs(rot) / 90f * 0.28f)
               Box(
                 modifier = Modifier
                   .fillMaxSize()
@@ -339,13 +337,23 @@ fun BookFlipContainer(
                     Brush.horizontalGradient(
                       colors = listOf(
                         Color.Transparent,
-                        Color.Black.copy(alpha = foldDarken * 0.4f),
-                        Color.White.copy(alpha = foldDarken * 0.15f),
-                        Color.Black.copy(alpha = foldDarken)
+                        Color.Black.copy(alpha = foldDarken * 0.35f),
+                        Color.White.copy(alpha = foldDarken * 0.22f), // Specular light on paper arch
+                        Color.Black.copy(alpha = foldDarken * 1.1f)   // Curl shadow near the edge
                       )
                     )
                   )
               )
+
+              // Physical Page Curl Overlay on top-right corner when page starts turning
+              val curlProgress = (abs(rot) / 75f).coerceIn(0f, 1f)
+              if (curlProgress > 0.05f) {
+                CornerPageCurlOverlay(
+                  themeMode = themeMode,
+                  curlProgress = curlProgress,
+                  modifier = Modifier.fillMaxSize()
+                )
+              }
             } else {
               // BACK FACE of turning page (Page N reverse)
               Box(
@@ -396,8 +404,7 @@ fun BookFlipContainer(
         }
       }
 
-      // 3. PHYSICAL CORNER CURL AFFORDANCE (Dog-ear at bottom right)
-      // Visual indicator that this is a physical page that can be turned
+      // 3. PHYSICAL CORNER CURL DOG-EAR AFFORDANCE (Bottom right & Bottom left)
       if (!isAnimating && pageIndex < totalPages - 1 && !isSelectingText) {
         PageCornerCurl(
           themeMode = themeMode,
@@ -410,7 +417,6 @@ fun BookFlipContainer(
         )
       }
 
-      // Optional Previous Page Corner Curl at bottom left
       if (!isAnimating && pageIndex > 0 && !isSelectingText) {
         PageCornerCurl(
           themeMode = themeMode,
@@ -423,7 +429,118 @@ fun BookFlipContainer(
             }
         )
       }
+
+      // 4. FLOATING TRANSLUCENT NAVIGATION CHEVRON ARROWS (As seen in Reference Image 1)
+      if (!isSelectingText) {
+        // Left Navigation Arrow (<)
+        if (pageIndex > 0) {
+          IconButton(
+            onClick = { controller.flipBackward() },
+            colors = IconButtonDefaults.iconButtonColors(
+              containerColor = Color.Black.copy(alpha = 0.15f),
+              contentColor = Color.White
+            ),
+            modifier = Modifier
+              .align(Alignment.CenterStart)
+              .padding(start = 6.dp)
+              .size(40.dp)
+              .clip(CircleShape)
+              .testTag("floating_prev_page_btn")
+          ) {
+            Icon(
+              imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+              contentDescription = "Previous Page",
+              tint = Color.White,
+              modifier = Modifier.size(22.dp)
+            )
+          }
+        }
+
+        // Right Navigation Arrow (>)
+        if (pageIndex < totalPages - 1) {
+          IconButton(
+            onClick = { controller.flipForward() },
+            colors = IconButtonDefaults.iconButtonColors(
+              containerColor = Color.Black.copy(alpha = 0.15f),
+              contentColor = Color.White
+            ),
+            modifier = Modifier
+              .align(Alignment.CenterEnd)
+              .padding(end = 6.dp)
+              .size(40.dp)
+              .clip(CircleShape)
+              .testTag("floating_next_page_btn")
+          ) {
+            Icon(
+              imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+              contentDescription = "Next Page",
+              tint = Color.White,
+              modifier = Modifier.size(22.dp)
+            )
+          }
+        }
+      }
     }
+  }
+}
+
+/**
+ * Realistic Curved Paper Corner Curl Overlay.
+ * Renders the visible curved paper foldcone with light reflection and soft drop-shadow.
+ */
+@Composable
+private fun CornerPageCurlOverlay(
+  themeMode: AppThemeMode,
+  curlProgress: Float,
+  modifier: Modifier = Modifier
+) {
+  val backColor = when (themeMode) {
+    AppThemeMode.WARM_PAPER -> Color(0xFFF5ECDD)
+    AppThemeMode.DARK -> Color(0xFF282234)
+    else -> Color(0xFFFAF7F2)
+  }
+
+  Canvas(modifier = modifier) {
+    val w = size.width
+    val h = size.height
+
+    // Calculate dynamic corner curl triangle
+    val curlSize = (w * 0.38f * curlProgress).coerceAtLeast(10f)
+
+    // Curl fold path
+    val curlPath = Path().apply {
+      moveTo(w - curlSize, 0f)
+      lineTo(w, curlSize)
+      lineTo(w - (curlSize * 0.15f), curlSize * 0.7f)
+      close()
+    }
+
+    // Drop shadow under curl fold
+    val shadowPath = Path().apply {
+      moveTo(w - curlSize - 8f, 0f)
+      lineTo(w, curlSize + 8f)
+      lineTo(w, 0f)
+      close()
+    }
+
+    drawPath(
+      path = shadowPath,
+      color = Color.Black.copy(alpha = 0.22f * curlProgress)
+    )
+
+    // Curled back paper face
+    drawPath(
+      path = curlPath,
+      brush = Brush.linearGradient(
+        colors = listOf(
+          backColor,
+          Color.White.copy(alpha = 0.8f),
+          backColor.copy(alpha = 0.9f)
+        ),
+        start = Offset(w - curlSize, 0f),
+        end = Offset(w, curlSize)
+      )
+    )
   }
 }
 
