@@ -4,16 +4,14 @@ import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,7 +19,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,7 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -69,40 +66,43 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
-import kotlinx.coroutines.launch
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.AnnotationEntity
+import com.example.data.model.BookPageTextEntity
+import com.example.ui.components.BookFlipContainer
+import com.example.ui.components.rememberBookFlipController
 import com.example.ui.theme.AppThemeMode
 import com.example.ui.theme.HighlightGreen
 import com.example.ui.theme.HighlightLavender
@@ -119,8 +119,14 @@ fun ReaderScreen(
 ) {
   val book by viewModel.currentReadingBook.collectAsState()
   val pageIndex by viewModel.currentPageIndex.collectAsState()
-  val pdfBitmap by viewModel.currentPdfBitmap.collectAsState()
-  val pageText by viewModel.currentPageText.collectAsState()
+  val currentPdfBitmap by viewModel.currentPdfBitmap.collectAsState()
+  val nextPdfBitmap by viewModel.nextPdfBitmap.collectAsState()
+  val prevPdfBitmap by viewModel.prevPdfBitmap.collectAsState()
+
+  val currentPageText by viewModel.currentPageText.collectAsState()
+  val nextPageText by viewModel.nextPageText.collectAsState()
+  val prevPageText by viewModel.prevPageText.collectAsState()
+
   val readingMode by viewModel.readingMode.collectAsState()
   val fontSize by viewModel.readerFontSize.collectAsState()
   val currentTheme by viewModel.appThemeMode.collectAsState()
@@ -134,18 +140,15 @@ fun ReaderScreen(
 
   val clipboardManager = LocalClipboardManager.current
   val context = LocalContext.current
-  val haptic = LocalHapticFeedback.current
-  val coroutineScope = rememberCoroutineScope()
+  val bookFlipController = rememberBookFlipController()
+
   var showAppearanceDialog by remember { mutableStateOf(false) }
   var showAddNoteDialog by remember { mutableStateOf<String?>(null) }
   var viewingOrEditingAnnotation by remember { mutableStateOf<AnnotationEntity?>(null) }
-  var activeSelectedParagraph by remember { mutableStateOf<String?>(null) }
   var showReaderRenameDialog by remember { mutableStateOf(false) }
 
-  // Flipbook interactive drag & animation state
-  var dragOffset by remember { mutableFloatStateOf(0f) }
-  val animOffset = remember { Animatable(0f) }
-  var isFlipping by remember { mutableStateOf(false) }
+  // State of text selection in Clean Reader mode
+  var isTextSelecting by remember { mutableStateOf(false) }
 
   // Handle hardware / predictive back
   BackHandler {
@@ -167,20 +170,16 @@ fun ReaderScreen(
     it.bookId == currentBook.id && it.pageNumber == currentPageNum && it.type == "BOOKMARK"
   }
 
-  val pageAnnotations = allAnnotations.filter {
-    it.bookId == currentBook.id && it.pageNumber == currentPageNum
+  val currentPageAnnotations = remember(allAnnotations, currentBook.id, currentPageNum) {
+    allAnnotations.filter { it.bookId == currentBook.id && it.pageNumber == currentPageNum }
   }
 
-  // Transformable state for pinch-to-zoom in Original PDF Mode
-  var scale by remember { mutableFloatStateOf(1f) }
-  var offset by remember { mutableStateOf(Offset.Zero) }
-  val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
-    scale = (scale * zoomChange).coerceIn(1f, 4f)
-    if (scale > 1f) {
-      offset += offsetChange
-    } else {
-      offset = Offset.Zero
-    }
+  val nextPageAnnotations = remember(allAnnotations, currentBook.id, currentPageNum) {
+    allAnnotations.filter { it.bookId == currentBook.id && it.pageNumber == currentPageNum + 1 }
+  }
+
+  val prevPageAnnotations = remember(allAnnotations, currentBook.id, currentPageNum) {
+    allAnnotations.filter { it.bookId == currentBook.id && it.pageNumber == currentPageNum - 1 }
   }
 
   Surface(
@@ -303,567 +302,152 @@ fun ReaderScreen(
           Row(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(horizontal = 8.dp, vertical = 4.dp),
+              .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
           ) {
             OutlinedTextField(
               value = readerSearchQuery,
               onValueChange = { viewModel.setReaderSearchQuery(it) },
-              placeholder = { Text("Search text in this book...", fontSize = 13.sp) },
+              placeholder = { Text("Search text in this book...") },
               singleLine = true,
-              modifier = Modifier.weight(1f),
-              shape = RoundedCornerShape(10.dp)
+              modifier = Modifier
+                .weight(1f)
+                .testTag("reader_search_input")
             )
 
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
-            if (readerSearchQuery.isNotBlank()) {
-              val matchText = if (readerSearchMatches.isNotEmpty()) "${currentReaderSearchIndex + 1}/${readerSearchMatches.size}" else "0/0"
+            if (readerSearchMatches.isNotEmpty()) {
               Text(
-                text = matchText,
+                text = "${currentReaderSearchIndex + 1}/${readerSearchMatches.size}",
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                 modifier = Modifier.padding(horizontal = 4.dp)
               )
-              IconButton(
-                onClick = { viewModel.previousReaderSearchMatch() },
-                enabled = readerSearchMatches.isNotEmpty(),
-                modifier = Modifier.size(32.dp)
-              ) {
-                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Previous match", modifier = Modifier.size(18.dp))
+
+              IconButton(onClick = { viewModel.previousReaderSearchMatch() }, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Previous Match", modifier = Modifier.size(20.dp))
               }
-              IconButton(
-                onClick = { viewModel.nextReaderSearchMatch() },
-                enabled = readerSearchMatches.isNotEmpty(),
-                modifier = Modifier.size(32.dp)
-              ) {
-                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Next match", modifier = Modifier.size(18.dp))
+              IconButton(onClick = { viewModel.nextReaderSearchMatch() }, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Next Match", modifier = Modifier.size(20.dp))
               }
+            } else if (readerSearchQuery.isNotBlank()) {
+              Text(
+                text = "0 matches",
+                style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.error),
+                modifier = Modifier.padding(horizontal = 4.dp)
+              )
             }
 
-            IconButton(
-              onClick = { viewModel.toggleReaderSearch(false) },
-              modifier = Modifier.size(32.dp)
-            ) {
+            IconButton(onClick = { viewModel.toggleReaderSearch(false) }, modifier = Modifier.size(32.dp)) {
               Icon(Icons.Default.Close, contentDescription = "Close search", modifier = Modifier.size(18.dp))
             }
           }
         }
       }
 
-      // 2. Reading Content Area
+      // 2. Reading Content Area wrapped in Realistic 3D Book Flip Container
       Box(
         modifier = Modifier
           .weight(1f)
           .fillMaxWidth()
       ) {
         if (readingMode == ReadingMode.ORIGINAL_PDF) {
-          // --- ORIGINAL PDF MODE (Vector bitmap rendering) ---
-          Box(
-            modifier = Modifier
-              .fillMaxSize()
-              .transformable(state = transformableState)
-              .testTag("original_pdf_container"),
-            contentAlignment = Alignment.Center
-          ) {
-            if (pdfBitmap != null) {
-              Image(
-                bitmap = pdfBitmap!!.asImageBitmap(),
-                contentDescription = "Page $currentPageNum",
-                modifier = Modifier
-                  .fillMaxSize()
-                  .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offset.x,
-                    translationY = offset.y
-                  ),
-                contentScale = ContentScale.Fit
+          // --- ORIGINAL PDF MODE WITH 3D FLIPBOOK ---
+          BookFlipContainer(
+            pageIndex = pageIndex,
+            totalPages = totalPages,
+            themeMode = currentTheme,
+            isSelectingText = false,
+            controller = bookFlipController,
+            onPageChange = { targetPage -> viewModel.goToPage(targetPage) },
+            modifier = Modifier.testTag("original_pdf_container"),
+            currentPageContent = {
+              OriginalPdfPage(
+                bitmap = currentPdfBitmap,
+                pageNumber = currentPageNum,
+                totalPages = totalPages,
+                themeMode = currentTheme
               )
-            } else {
-              Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-              ) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.height(10.dp))
-                Text("Rendering vector page...", style = MaterialTheme.typography.bodySmall)
-              }
+            },
+            nextPageContent = {
+              OriginalPdfPage(
+                bitmap = nextPdfBitmap,
+                pageNumber = currentPageNum + 1,
+                totalPages = totalPages,
+                themeMode = currentTheme
+              )
+            },
+            prevPageContent = {
+              OriginalPdfPage(
+                bitmap = prevPdfBitmap,
+                pageNumber = currentPageNum - 1,
+                totalPages = totalPages,
+                themeMode = currentTheme
+              )
             }
-          }
+          )
         } else {
-          // --- CLEAN READING MODE WITH REALISTIC FLIPBOOK INTERACTION ---
-          val currentFraction = if (isFlipping) animOffset.value else (dragOffset / 350f).coerceIn(-1f, 1f)
-          val flipAngle = currentFraction * -55f
-          val pageRotationOrigin = if (currentFraction <= 0f) TransformOrigin(0f, 0.5f) else TransformOrigin(1f, 0.5f)
-          val shadowAlpha = (kotlin.math.abs(currentFraction) * 0.28f).coerceIn(0f, 0.35f)
-
-          val pageBgColor = when (currentTheme) {
-            AppThemeMode.WARM_PAPER -> Color(0xFFFBF4E8)
-            AppThemeMode.DARK -> Color(0xFF1E1A27)
-            else -> Color(0xFFFFFDF9)
-          }
-
-          Box(
-            modifier = Modifier
-              .fillMaxSize()
-              .padding(horizontal = 12.dp, vertical = 6.dp)
-              .testTag("clean_reading_container")
-          ) {
-            // Physical Book Page Card with 3D Flipbook transforms
-            Card(
-              shape = RoundedCornerShape(12.dp),
-              colors = CardDefaults.cardColors(containerColor = pageBgColor),
-              elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-              border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-              ),
-              modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                  rotationY = flipAngle
-                  cameraDistance = 14f * density
-                  transformOrigin = pageRotationOrigin
+          // --- CLEAN READING MODE WITH PRECISE TEXT SELECTION & 3D FLIPBOOK ---
+          BookFlipContainer(
+            pageIndex = pageIndex,
+            totalPages = totalPages,
+            themeMode = currentTheme,
+            isSelectingText = isTextSelecting,
+            controller = bookFlipController,
+            onPageChange = { targetPage -> viewModel.goToPage(targetPage) },
+            modifier = Modifier.testTag("clean_reading_container"),
+            currentPageContent = {
+              CleanReaderPage(
+                pageText = currentPageText,
+                pageNumber = currentPageNum,
+                totalPages = totalPages,
+                fontSize = fontSize,
+                themeMode = currentTheme,
+                pageAnnotations = currentPageAnnotations,
+                searchQuery = readerSearchQuery,
+                onSelectingChange = { isTextSelecting = it },
+                onAddHighlight = { text, color ->
+                  viewModel.addHighlight(text, color)
+                },
+                onRemoveHighlight = { text ->
+                  viewModel.removeHighlightForText(text)
+                },
+                onAnnotate = { text ->
+                  showAddNoteDialog = text
+                },
+                onOpenNoteDetails = { annotation ->
+                  viewingOrEditingAnnotation = annotation
+                },
+                onSwitchToPdfMode = {
+                  viewModel.toggleReadingMode()
                 }
-                .pointerInput(pageIndex, totalPages, isFlipping) {
-                  if (!isFlipping) {
-                    detectHorizontalDragGestures(
-                      onHorizontalDrag = { change, dragAmount ->
-                        change.consume()
-                        val newOffset = dragOffset + dragAmount
-                        if ((dragAmount < 0 && pageIndex >= totalPages - 1) || (dragAmount > 0 && pageIndex <= 0)) {
-                          dragOffset = newOffset * 0.25f
-                        } else {
-                          dragOffset = newOffset
-                        }
-                      },
-                      onDragEnd = {
-                        val threshold = 70f
-                        if (dragOffset < -threshold && pageIndex < totalPages - 1) {
-                          isFlipping = true
-                          coroutineScope.launch {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            animOffset.animateTo(-1f, animationSpec = tween(170))
-                            viewModel.nextPage()
-                            animOffset.snapTo(0f)
-                            dragOffset = 0f
-                            isFlipping = false
-                          }
-                        } else if (dragOffset > threshold && pageIndex > 0) {
-                          isFlipping = true
-                          coroutineScope.launch {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            animOffset.animateTo(1f, animationSpec = tween(170))
-                            viewModel.previousPage()
-                            animOffset.snapTo(0f)
-                            dragOffset = 0f
-                            isFlipping = false
-                          }
-                        } else {
-                          coroutineScope.launch {
-                            animOffset.animateTo(0f, animationSpec = spring())
-                            dragOffset = 0f
-                          }
-                        }
-                      },
-                      onDragCancel = {
-                        coroutineScope.launch {
-                          animOffset.animateTo(0f, animationSpec = spring())
-                          dragOffset = 0f
-                        }
-                      }
-                    )
-                  }
-                }
-            ) {
-              Box(modifier = Modifier.fillMaxSize()) {
-                // Book Spine Crease Shadow along Left Edge
-                Box(
-                  modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .width(14.dp)
-                    .fillMaxHeight()
-                    .background(
-                      Brush.horizontalGradient(
-                        listOf(Color.Black.copy(alpha = 0.08f), Color.Transparent)
-                      )
-                    )
-                )
-
-                // Scrollable Text Content
-                val scrollState = rememberScrollState()
-                val paragraphs = remember(pageText) {
-                  pageText?.textContent?.split("\n\n")?.filter { it.isNotBlank() } ?: emptyList()
-                }
-
-                // Check for authentic non-page chapter title
-                val rawChapter = pageText?.chapterTitle?.trim() ?: ""
-                val isRealChapterTitle = rawChapter.isNotBlank() &&
-                  !rawChapter.startsWith("Page", ignoreCase = true) &&
-                  rawChapter != "Chapter $currentPageNum"
-
-                SelectionContainer {
-                  Column(
-                    modifier = Modifier
-                      .fillMaxSize()
-                      .verticalScroll(scrollState)
-                      .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 16.dp)
-                  ) {
-                    // Display chapter title ONLY if an authentic title exists. NO "Page 1" at top!
-                    if (isRealChapterTitle) {
-                      Text(
-                        text = rawChapter,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                          fontFamily = FontFamily.Serif,
-                          fontWeight = FontWeight.Bold,
-                          color = MaterialTheme.colorScheme.primary,
-                          fontSize = (fontSize + 3).sp
-                        ),
-                        modifier = Modifier.padding(bottom = 14.dp)
-                      )
-                    }
-
-                    if (paragraphs.isEmpty()) {
-                      Box(
-                        modifier = Modifier
-                          .fillMaxWidth()
-                          .padding(vertical = 48.dp),
-                        contentAlignment = Alignment.Center
-                      ) {
-                        Text(
-                          text = "No extractable text on this page.\nSwitch to Original PDF mode to view images or scanned content.",
-                          style = MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                          )
-                        )
-                      }
-                    }
-
-                    // Paragraphs
-                    paragraphs.forEachIndexed { index, paragraph ->
-                      val matchingHighlight = pageAnnotations.firstOrNull {
-                        it.selectedText.isNotBlank() &&
-                          (paragraph.contains(it.selectedText) || it.selectedText.contains(paragraph))
-                      }
-
-                      val highlightColor = when (matchingHighlight?.color) {
-                        "yellow" -> HighlightYellow
-                        "lavender" -> HighlightLavender
-                        "green" -> HighlightGreen
-                        "pink" -> HighlightPink
-                        else -> null
-                      }
-
-                      val isSelected = activeSelectedParagraph == paragraph
-
-                      // Highlight matched search query in text
-                      val annotatedParagraph = remember(paragraph, readerSearchQuery) {
-                        if (readerSearchQuery.isNotBlank() && paragraph.contains(readerSearchQuery, ignoreCase = true)) {
-                          buildAnnotatedString {
-                            var currentIndex = 0
-                            val lowerPara = paragraph.lowercase()
-                            val lowerQuery = readerSearchQuery.lowercase()
-                            while (currentIndex < paragraph.length) {
-                              val matchIdx = lowerPara.indexOf(lowerQuery, currentIndex)
-                              if (matchIdx == -1) {
-                                append(paragraph.substring(currentIndex))
-                                break
-                              }
-                              if (matchIdx > currentIndex) {
-                                append(paragraph.substring(currentIndex, matchIdx))
-                              }
-                              withStyle(SpanStyle(background = HighlightYellow, fontWeight = FontWeight.Bold)) {
-                                append(paragraph.substring(matchIdx, matchIdx + readerSearchQuery.length))
-                              }
-                              currentIndex = matchIdx + readerSearchQuery.length
-                            }
-                          }
-                        } else {
-                          AnnotatedString(paragraph)
-                        }
-                      }
-
-                      val isHeading = remember(paragraph) {
-                        val p = paragraph.trim()
-                        p.length in 3..75 && (
-                          p.startsWith("Chapter", ignoreCase = true) ||
-                          p.startsWith("Part", ignoreCase = true) ||
-                          p.startsWith("Section", ignoreCase = true) ||
-                          p.startsWith("Introduction", ignoreCase = true) ||
-                          p.startsWith("Epilogue", ignoreCase = true) ||
-                          p.startsWith("Prologue", ignoreCase = true) ||
-                          p.startsWith("Conclusion", ignoreCase = true) ||
-                          p.startsWith("#") ||
-                          (p.length in 4..60 && p == p.uppercase() && p.any { it.isLetter() } && !p.endsWith("."))
-                        )
-                      }
-
-                      val isListItem = remember(paragraph) {
-                        val p = paragraph.trim()
-                        p.startsWith("•") || p.startsWith("*") || p.startsWith("- ") || p.startsWith("–") || p.startsWith("—") ||
-                          p.matches(Regex("^(\\d{1,3}[.)]|\\([0-9a-zA-Z]+\\)|[a-zA-Z][.)])\\s+.*"))
-                      }
-
-                      val isQuote = remember(paragraph) {
-                        val p = paragraph.trim()
-                        p.startsWith("\"") || p.startsWith("“") || p.startsWith(">")
-                      }
-
-                      Column(
-                        modifier = Modifier
-                          .fillMaxWidth()
-                          .padding(
-                            vertical = if (isHeading) 10.dp else if (isListItem) 3.dp else 6.dp,
-                            horizontal = if (isListItem) 6.dp else 4.dp
-                          )
-                          .clip(RoundedCornerShape(6.dp))
-                          .background(
-                            highlightColor?.copy(alpha = 0.45f)
-                              ?: if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                              else if (isQuote) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                              else Color.Transparent
-                          )
-                          .clickable {
-                            activeSelectedParagraph = if (isSelected) null else paragraph
-                          }
-                          .padding(
-                            horizontal = if (isQuote) 12.dp else 4.dp,
-                            vertical = if (isQuote) 6.dp else 2.dp
-                          )
-                      ) {
-                        Text(
-                          text = annotatedParagraph,
-                          style = if (isHeading) {
-                            MaterialTheme.typography.titleLarge.copy(
-                              fontFamily = FontFamily.Serif,
-                              fontWeight = FontWeight.Bold,
-                              fontSize = (fontSize + 3).sp,
-                              color = MaterialTheme.colorScheme.primary
-                            )
-                          } else if (isQuote) {
-                            MaterialTheme.typography.bodyLarge.copy(
-                              fontFamily = FontFamily.Serif,
-                              fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                              fontSize = fontSize.sp,
-                              lineHeight = (fontSize * 1.6f).sp,
-                              color = MaterialTheme.colorScheme.onBackground
-                            )
-                          } else {
-                            MaterialTheme.typography.bodyLarge.copy(
-                              fontFamily = FontFamily.Serif,
-                              fontSize = fontSize.sp,
-                              lineHeight = (fontSize * 1.65f).sp,
-                              color = MaterialTheme.colorScheme.onBackground
-                            )
-                          }
-                        )
-
-                        // Subtle Note Marker if an annotation has an attached personal note
-                        if (matchingHighlight?.noteContent?.isNotBlank() == true) {
-                          Row(
-                            modifier = Modifier
-                              .padding(top = 6.dp, bottom = 2.dp)
-                              .clip(RoundedCornerShape(8.dp))
-                              .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
-                              .border(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                              .clickable {
-                                viewingOrEditingAnnotation = matchingHighlight
-                              }
-                              .padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                          ) {
-                            Icon(
-                              imageVector = Icons.Default.EditNote,
-                              contentDescription = "View Note",
-                              tint = MaterialTheme.colorScheme.primary,
-                              modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                              text = "Note: ${matchingHighlight.noteContent}",
-                              maxLines = 1,
-                              overflow = TextOverflow.Ellipsis,
-                              style = MaterialTheme.typography.bodySmall.copy(
-                                fontSize = 12.sp,
-                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                                color = MaterialTheme.colorScheme.onSurface
-                              )
-                            )
-                          }
-                        }
-
-                        // Contextual Action Toolbar
-                        AnimatedVisibility(
-                          visible = isSelected,
-                          enter = fadeIn(),
-                          exit = fadeOut()
-                        ) {
-                          Row(
-                            modifier = Modifier
-                              .padding(top = 8.dp, bottom = 4.dp)
-                              .clip(RoundedCornerShape(22.dp))
-                              .background(MaterialTheme.colorScheme.surface)
-                              .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), RoundedCornerShape(22.dp))
-                              .padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                          ) {
-                            // Color dots
-                            ColorDot(color = HighlightYellow, onClick = {
-                              viewModel.addHighlight(paragraph, "yellow")
-                              activeSelectedParagraph = null
-                            })
-                            ColorDot(color = HighlightLavender, onClick = {
-                              viewModel.addHighlight(paragraph, "lavender")
-                              activeSelectedParagraph = null
-                            })
-                            ColorDot(color = HighlightGreen, onClick = {
-                              viewModel.addHighlight(paragraph, "green")
-                              activeSelectedParagraph = null
-                            })
-                            ColorDot(color = HighlightPink, onClick = {
-                              viewModel.addHighlight(paragraph, "pink")
-                              activeSelectedParagraph = null
-                            })
-
-                            // Remove highlight button if present
-                            if (matchingHighlight != null) {
-                              IconButton(
-                                onClick = {
-                                  viewModel.removeHighlightForText(paragraph)
-                                  activeSelectedParagraph = null
-                                },
-                                modifier = Modifier.size(24.dp)
-                              ) {
-                                Icon(
-                                  imageVector = Icons.Default.FormatColorReset,
-                                  contentDescription = "Remove Highlight",
-                                  tint = MaterialTheme.colorScheme.error,
-                                  modifier = Modifier.size(16.dp)
-                                )
-                              }
-                            }
-
-                            Spacer(modifier = Modifier.width(2.dp))
-
-                            // Add Note / Annotate Button
-                            IconButton(
-                              onClick = {
-                                showAddNoteDialog = paragraph
-                                activeSelectedParagraph = null
-                              },
-                              modifier = Modifier.size(24.dp)
-                            ) {
-                              Icon(
-                                imageVector = Icons.Default.EditNote,
-                                contentDescription = "Annotate",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                              )
-                            }
-
-                            // Copy text Button
-                            IconButton(
-                              onClick = {
-                                try {
-                                  clipboardManager.setText(AnnotatedString(paragraph))
-                                  Toast.makeText(context, "Text copied to clipboard", Toast.LENGTH_SHORT).show()
-                                } catch (e: Exception) {
-                                  e.printStackTrace()
-                                }
-                                activeSelectedParagraph = null
-                              },
-                              modifier = Modifier.size(24.dp)
-                            ) {
-                              Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "Copy",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                              )
-                            }
-
-                            // Quick Listen Button
-                            IconButton(
-                              onClick = {
-                                viewModel.playBookAudio(currentBook, startFromPage = currentPageNum, openFullPlayer = false)
-                                activeSelectedParagraph = null
-                              },
-                              modifier = Modifier.size(24.dp)
-                            ) {
-                              Icon(
-                                imageVector = Icons.Default.Headphones,
-                                contentDescription = "Listen to page",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                              )
-                            }
-                          }
-                        }
-                      }
-                    }
-
-                    // Bottom padding ensuring text NEVER overlaps anchored bottom-right page number
-                    Spacer(modifier = Modifier.height(60.dp))
-                  }
-                }
-
-                // Dynamic Page Curl Shadow during Flipbook Drag
-                if (currentFraction != 0f) {
-                  Box(
-                    modifier = Modifier
-                      .fillMaxSize()
-                      .background(
-                        Brush.horizontalGradient(
-                          if (currentFraction < 0f)
-                            listOf(Color.Transparent, Color.Black.copy(alpha = shadowAlpha))
-                          else
-                            listOf(Color.Black.copy(alpha = shadowAlpha), Color.Transparent)
-                        )
-                      )
-                  )
-                }
-
-                // 3. ANCHORED BOTTOM-RIGHT PAGE NUMBER
-                Box(
-                  modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 20.dp, bottom = 12.dp)
-                    .testTag("reader_bottom_right_page_number")
-                ) {
-                  Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = when (currentTheme) {
-                      AppThemeMode.WARM_PAPER -> Color(0xFFE8DFC9).copy(alpha = 0.85f)
-                      AppThemeMode.DARK -> Color(0xFF2B2536).copy(alpha = 0.85f)
-                      else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f)
-                    },
-                    border = androidx.compose.foundation.BorderStroke(
-                      0.5.dp,
-                      MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-                    )
-                  ) {
-                    Text(
-                      text = "Page $currentPageNum of $totalPages",
-                      style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = FontFamily.Serif,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 11.sp,
-                        letterSpacing = 0.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
-                      ),
-                      modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                  }
-                }
-              }
+              )
+            },
+            nextPageContent = {
+              CleanReaderPagePreview(
+                pageText = nextPageText,
+                pageNumber = currentPageNum + 1,
+                totalPages = totalPages,
+                fontSize = fontSize,
+                themeMode = currentTheme,
+                pageAnnotations = nextPageAnnotations
+              )
+            },
+            prevPageContent = {
+              CleanReaderPagePreview(
+                pageText = prevPageText,
+                pageNumber = currentPageNum - 1,
+                totalPages = totalPages,
+                fontSize = fontSize,
+                themeMode = currentTheme,
+                pageAnnotations = prevPageAnnotations
+              )
             }
-          }
+          )
         }
       }
 
-      // 3. Bottom Scrubber Bar
+      // 3. Bottom Scrubber Bar with Page Turning Controls
       Card(
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -877,9 +461,9 @@ fun ReaderScreen(
           verticalAlignment = Alignment.CenterVertically,
           horizontalArrangement = Arrangement.SpaceBetween
         ) {
-          // Previous Page Button
+          // Previous Page Button (Triggers realistic 3D book flip backward)
           IconButton(
-            onClick = { viewModel.previousPage() },
+            onClick = { bookFlipController.flipBackward() },
             enabled = pageIndex > 0,
             modifier = Modifier.testTag("reader_prev_page_btn")
           ) {
@@ -939,9 +523,9 @@ fun ReaderScreen(
             )
           }
 
-          // Next Page Button
+          // Next Page Button (Triggers realistic 3D book flip forward)
           IconButton(
-            onClick = { viewModel.nextPage() },
+            onClick = { bookFlipController.flipForward() },
             enabled = pageIndex < totalPages - 1,
             modifier = Modifier.testTag("reader_next_page_btn")
           ) {
@@ -1064,9 +648,8 @@ fun ReaderScreen(
       confirmButton = {
         TextButton(
           onClick = {
-            viewModel.addHighlight(showAddNoteDialog!!, "lavender", noteText)
+            viewModel.addHighlight(showAddNoteDialog!!, "yellow", noteText)
             showAddNoteDialog = null
-            activeSelectedParagraph = null
           }
         ) {
           Text("Save Note")
@@ -1205,14 +788,559 @@ fun ReaderScreen(
   }
 }
 
+/**
+ * Clean Reader Page Composable with Precise Text Selection, Exact Character Highlighting,
+ * and Anchored Bottom-Right Page Number.
+ */
+@Composable
+private fun CleanReaderPage(
+  pageText: BookPageTextEntity?,
+  pageNumber: Int,
+  totalPages: Int,
+  fontSize: Int,
+  themeMode: AppThemeMode,
+  pageAnnotations: List<AnnotationEntity>,
+  searchQuery: String,
+  onSelectingChange: (Boolean) -> Unit,
+  onAddHighlight: (String, String) -> Unit,
+  onRemoveHighlight: (String) -> Unit,
+  onAnnotate: (String) -> Unit,
+  onOpenNoteDetails: (AnnotationEntity) -> Unit,
+  onSwitchToPdfMode: () -> Unit
+) {
+  val context = LocalContext.current
+  val clipboardManager = LocalClipboardManager.current
+  val scrollState = rememberScrollState()
+
+  // Filter actual highlights & notes (exclude bookmarks)
+  val highlights = remember(pageAnnotations) {
+    pageAnnotations.filter {
+      (it.type == "HIGHLIGHT" || it.type == "NOTE") && it.selectedText.isNotBlank()
+    }
+  }
+
+  val pageNotes = remember(pageAnnotations) {
+    pageAnnotations.filter {
+      it.type != "BOOKMARK" && it.noteContent.isNotBlank()
+    }
+  }
+
+  val fullText = pageText?.textContent ?: ""
+
+  var textFieldValue by remember(fullText) {
+    mutableStateOf(TextFieldValue(fullText))
+  }
+
+  val isSelectionActive = !textFieldValue.selection.collapsed
+  LaunchedEffect(isSelectionActive) {
+    onSelectingChange(isSelectionActive)
+  }
+
+  val selectedText = remember(textFieldValue.selection, textFieldValue.text) {
+    if (!textFieldValue.selection.collapsed) {
+      val min = textFieldValue.selection.min.coerceIn(0, textFieldValue.text.length)
+      val max = textFieldValue.selection.max.coerceIn(0, textFieldValue.text.length)
+      textFieldValue.text.substring(min, max).trim()
+    } else {
+      ""
+    }
+  }
+
+  // Visual Transformation for Precise Character Span Highlighting
+  val highlightTransformation = remember(highlights, searchQuery, fullText) {
+    VisualTransformation { text ->
+      val annotated = buildAnnotatedString {
+        append(text.text)
+
+        // 1. Precise Character Highlights
+        for (hl in highlights) {
+          val target = hl.selectedText.trim()
+          if (target.isNotBlank()) {
+            var startIndex = 0
+            while (startIndex < text.length) {
+              val idx = text.text.indexOf(target, startIndex, ignoreCase = false)
+              if (idx == -1) break
+              val hlColor = when (hl.color) {
+                "yellow" -> HighlightYellow
+                "lavender" -> HighlightLavender
+                "green" -> HighlightGreen
+                "pink" -> HighlightPink
+                else -> HighlightYellow
+              }
+
+              addStyle(
+                style = SpanStyle(
+                  background = hlColor.copy(alpha = 0.5f),
+                  textDecoration = if (hl.noteContent.isNotBlank()) TextDecoration.Underline else TextDecoration.None
+                ),
+                start = idx,
+                end = (idx + target.length).coerceAtMost(text.length)
+              )
+              startIndex = idx + target.length
+            }
+          }
+        }
+
+        // 2. Search Query Highlighting
+        val trimmedQuery = searchQuery.trim()
+        if (trimmedQuery.isNotBlank()) {
+          var searchStart = 0
+          while (searchStart < text.length) {
+            val idx = text.text.indexOf(trimmedQuery, searchStart, ignoreCase = true)
+            if (idx == -1) break
+            addStyle(
+              style = SpanStyle(
+                background = Color(0xFFFFB300),
+                fontWeight = FontWeight.Bold
+              ),
+              start = idx,
+              end = (idx + trimmedQuery.length).coerceAtMost(text.length)
+            )
+            searchStart = idx + trimmedQuery.length
+          }
+        }
+      }
+      TransformedText(annotated, OffsetMapping.Identity)
+    }
+  }
+
+  // Check for authentic non-page chapter title
+  val rawChapter = pageText?.chapterTitle?.trim() ?: ""
+  val isRealChapterTitle = rawChapter.isNotBlank() &&
+    !rawChapter.startsWith("Page", ignoreCase = true) &&
+    rawChapter != "Chapter $pageNumber"
+
+  Box(modifier = Modifier.fillMaxSize()) {
+    Column(
+      modifier = Modifier
+        .fillMaxSize()
+        .verticalScroll(scrollState)
+        .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 16.dp)
+    ) {
+      // Display authentic chapter title at top ONLY if not "Page X"
+      if (isRealChapterTitle) {
+        Text(
+          text = rawChapter,
+          style = MaterialTheme.typography.titleMedium.copy(
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            fontSize = (fontSize + 3).sp
+          ),
+          modifier = Modifier.padding(bottom = 14.dp)
+        )
+      }
+
+      if (fullText.isBlank()) {
+        Box(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 48.dp),
+          contentAlignment = Alignment.Center
+        ) {
+          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+              text = "No extractable text on this page.\nSwitch to Original PDF mode to view scanned content or images.",
+              style = MaterialTheme.typography.bodyMedium.copy(
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+              )
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            Button(onClick = onSwitchToPdfMode) {
+              Text("Switch to Original PDF Mode")
+            }
+          }
+        }
+      } else {
+        // Native Selectable Text Field with Custom VisualTransformation for Precise Highlighting
+        BasicTextField(
+          value = textFieldValue,
+          onValueChange = { textFieldValue = it },
+          readOnly = true,
+          cursorBrush = SolidColor(Color.Transparent),
+          visualTransformation = highlightTransformation,
+          textStyle = MaterialTheme.typography.bodyLarge.copy(
+            fontFamily = FontFamily.Serif,
+            fontSize = fontSize.sp,
+            lineHeight = (fontSize * 1.68f).sp,
+            color = when (themeMode) {
+              AppThemeMode.DARK -> Color(0xFFEDE7F6)
+              AppThemeMode.WARM_PAPER -> Color(0xFF2C2417)
+              else -> Color(0xFF1C1B1F)
+            }
+          ),
+          modifier = Modifier
+            .fillMaxWidth()
+            .testTag("reader_selectable_text")
+        )
+      }
+
+      // Notes list section on this page (if any notes attached)
+      if (pageNotes.isNotEmpty()) {
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+          text = "Notes on this page (${pageNotes.size})",
+          style = MaterialTheme.typography.labelMedium.copy(
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+          ),
+          modifier = Modifier.padding(bottom = 8.dp)
+        )
+
+        pageNotes.forEach { noteAnn ->
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(vertical = 4.dp)
+              .clip(RoundedCornerShape(8.dp))
+              .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))
+              .border(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
+              .clickable { onOpenNoteDetails(noteAnn) }
+              .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Icon(
+              imageVector = Icons.Default.EditNote,
+              contentDescription = "View Note",
+              tint = MaterialTheme.colorScheme.primary,
+              modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+              Text(
+                text = "\"${noteAnn.selectedText}\"",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall.copy(
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 12.sp,
+                  fontFamily = FontFamily.Serif
+                )
+              )
+              Text(
+                text = noteAnn.noteContent,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
+              )
+            }
+          }
+        }
+      }
+
+      // Bottom Spacer ensuring text NEVER overlaps anchored bottom-right page badge
+      Spacer(modifier = Modifier.height(72.dp))
+    }
+
+    // 4. FLOATING CONTEXTUAL ACTION TOOLBAR (Appears upon text selection)
+    AnimatedVisibility(
+      visible = isSelectionActive && selectedText.isNotBlank(),
+      enter = fadeIn() + slideInVertically { -it },
+      exit = fadeOut() + slideOutVertically { -it },
+      modifier = Modifier
+        .align(Alignment.TopCenter)
+        .padding(top = 10.dp)
+    ) {
+      Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+        modifier = Modifier.testTag("reader_selection_toolbar")
+      ) {
+        Row(
+          modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          // Copy Button
+          IconButton(
+            onClick = {
+              try {
+                clipboardManager.setText(AnnotatedString(selectedText))
+                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+              } catch (e: Exception) {
+                e.printStackTrace()
+              }
+              textFieldValue = textFieldValue.copy(selection = TextRange.Zero)
+            },
+            modifier = Modifier.size(28.dp)
+          ) {
+            Icon(
+              imageVector = Icons.Default.ContentCopy,
+              contentDescription = "Copy text",
+              tint = MaterialTheme.colorScheme.onSurface,
+              modifier = Modifier.size(16.dp)
+            )
+          }
+
+          // Highlight Color Dots
+          ColorDot(color = HighlightYellow, onClick = {
+            onAddHighlight(selectedText, "yellow")
+            textFieldValue = textFieldValue.copy(selection = TextRange.Zero)
+          })
+          ColorDot(color = HighlightLavender, onClick = {
+            onAddHighlight(selectedText, "lavender")
+            textFieldValue = textFieldValue.copy(selection = TextRange.Zero)
+          })
+          ColorDot(color = HighlightGreen, onClick = {
+            onAddHighlight(selectedText, "green")
+            textFieldValue = textFieldValue.copy(selection = TextRange.Zero)
+          })
+          ColorDot(color = HighlightPink, onClick = {
+            onAddHighlight(selectedText, "pink")
+            textFieldValue = textFieldValue.copy(selection = TextRange.Zero)
+          })
+
+          // Annotate / Add Note Button
+          IconButton(
+            onClick = {
+              onAnnotate(selectedText)
+              textFieldValue = textFieldValue.copy(selection = TextRange.Zero)
+            },
+            modifier = Modifier.size(28.dp)
+          ) {
+            Icon(
+              imageVector = Icons.Default.EditNote,
+              contentDescription = "Annotate",
+              tint = MaterialTheme.colorScheme.primary,
+              modifier = Modifier.size(18.dp)
+            )
+          }
+
+          // Remove Highlight if selected text matches an existing highlight
+          val isHighlighted = highlights.any {
+            it.selectedText.trim().equals(selectedText, ignoreCase = true) ||
+              it.selectedText.contains(selectedText)
+          }
+          if (isHighlighted) {
+            IconButton(
+              onClick = {
+                onRemoveHighlight(selectedText)
+                textFieldValue = textFieldValue.copy(selection = TextRange.Zero)
+              },
+              modifier = Modifier.size(28.dp)
+            ) {
+              Icon(
+                imageVector = Icons.Default.FormatColorReset,
+                contentDescription = "Remove Highlight",
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(16.dp)
+              )
+            }
+          }
+
+          // Dismiss Selection (X)
+          IconButton(
+            onClick = {
+              textFieldValue = textFieldValue.copy(selection = TextRange.Zero)
+            },
+            modifier = Modifier.size(28.dp)
+          ) {
+            Icon(
+              imageVector = Icons.Default.Close,
+              contentDescription = "Clear selection",
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.size(14.dp)
+            )
+          }
+        }
+      }
+    }
+
+    // 5. ANCHORED BOTTOM-RIGHT PAGE NUMBER
+    BottomRightPageBadge(
+      pageNumber = pageNumber,
+      totalPages = totalPages,
+      themeMode = themeMode,
+      modifier = Modifier
+        .align(Alignment.BottomEnd)
+        .padding(end = 20.dp, bottom = 12.dp)
+    )
+  }
+}
+
+/**
+ * Preview of adjacent clean reader page for smooth 3D flipbook background rendering.
+ */
+@Composable
+private fun CleanReaderPagePreview(
+  pageText: BookPageTextEntity?,
+  pageNumber: Int,
+  totalPages: Int,
+  fontSize: Int,
+  themeMode: AppThemeMode,
+  pageAnnotations: List<AnnotationEntity>
+) {
+  val fullText = pageText?.textContent ?: ""
+
+  Box(modifier = Modifier.fillMaxSize()) {
+    Column(
+      modifier = Modifier
+        .fillMaxSize()
+        .padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 16.dp)
+    ) {
+      val rawChapter = pageText?.chapterTitle?.trim() ?: ""
+      val isRealChapterTitle = rawChapter.isNotBlank() &&
+        !rawChapter.startsWith("Page", ignoreCase = true) &&
+        rawChapter != "Chapter $pageNumber"
+
+      if (isRealChapterTitle) {
+        Text(
+          text = rawChapter,
+          style = MaterialTheme.typography.titleMedium.copy(
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            fontSize = (fontSize + 3).sp
+          ),
+          modifier = Modifier.padding(bottom = 14.dp)
+        )
+      }
+
+      Text(
+        text = fullText,
+        maxLines = 14,
+        overflow = TextOverflow.Ellipsis,
+        style = MaterialTheme.typography.bodyLarge.copy(
+          fontFamily = FontFamily.Serif,
+          fontSize = fontSize.sp,
+          lineHeight = (fontSize * 1.68f).sp,
+          color = when (themeMode) {
+            AppThemeMode.DARK -> Color(0xFFEDE7F6)
+            AppThemeMode.WARM_PAPER -> Color(0xFF2C2417)
+            else -> Color(0xFF1C1B1F)
+          }
+        )
+      )
+    }
+
+    BottomRightPageBadge(
+      pageNumber = pageNumber,
+      totalPages = totalPages,
+      themeMode = themeMode,
+      modifier = Modifier
+        .align(Alignment.BottomEnd)
+        .padding(end = 20.dp, bottom = 12.dp)
+    )
+  }
+}
+
+/**
+ * Original PDF Page Composable with Vector Bitmap Rendering, Pinch-to-Zoom,
+ * and Anchored Bottom-Right Page Number.
+ */
+@Composable
+private fun OriginalPdfPage(
+  bitmap: Bitmap?,
+  pageNumber: Int,
+  totalPages: Int,
+  themeMode: AppThemeMode
+) {
+  var scale by remember { mutableFloatStateOf(1f) }
+  var offset by remember { mutableStateOf(Offset.Zero) }
+
+  val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
+    scale = (scale * zoomChange).coerceIn(1f, 4f)
+    if (scale > 1f) {
+      offset += offsetChange
+    } else {
+      offset = Offset.Zero
+    }
+  }
+
+  Box(
+    modifier = Modifier
+      .fillMaxSize()
+      .transformable(state = transformableState),
+    contentAlignment = Alignment.Center
+  ) {
+    if (bitmap != null) {
+      Image(
+        bitmap = bitmap.asImageBitmap(),
+        contentDescription = "Page $pageNumber",
+        modifier = Modifier
+          .fillMaxSize()
+          .graphicsLayer(
+            scaleX = scale,
+            scaleY = scale,
+            translationX = offset.x,
+            translationY = offset.y
+          ),
+        contentScale = ContentScale.Fit
+      )
+    } else {
+      Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+      ) {
+        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+        Spacer(modifier = Modifier.height(10.dp))
+        Text("Rendering vector page...", style = MaterialTheme.typography.bodySmall)
+      }
+    }
+
+    // Anchored Bottom-Right Page Badge
+    BottomRightPageBadge(
+      pageNumber = pageNumber,
+      totalPages = totalPages,
+      themeMode = themeMode,
+      modifier = Modifier
+        .align(Alignment.BottomEnd)
+        .padding(end = 20.dp, bottom = 12.dp)
+    )
+  }
+}
+
+/**
+ * Anchored Page Number Badge at bottom right of the page.
+ */
+@Composable
+private fun BottomRightPageBadge(
+  pageNumber: Int,
+  totalPages: Int,
+  themeMode: AppThemeMode,
+  modifier: Modifier = Modifier
+) {
+  Box(
+    modifier = modifier.testTag("reader_bottom_right_page_number")
+  ) {
+    Surface(
+      shape = RoundedCornerShape(8.dp),
+      color = when (themeMode) {
+        AppThemeMode.WARM_PAPER -> Color(0xFFE8DFC9).copy(alpha = 0.88f)
+        AppThemeMode.DARK -> Color(0xFF2B2536).copy(alpha = 0.88f)
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.80f)
+      },
+      border = androidx.compose.foundation.BorderStroke(
+        0.5.dp,
+        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+      )
+    ) {
+      Text(
+        text = "Page $pageNumber of $totalPages",
+        style = MaterialTheme.typography.labelSmall.copy(
+          fontFamily = FontFamily.Serif,
+          fontWeight = FontWeight.SemiBold,
+          fontSize = 11.sp,
+          letterSpacing = 0.5.sp,
+          color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+        ),
+        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+      )
+    }
+  }
+}
+
 @Composable
 private fun ColorDot(color: Color, onClick: () -> Unit) {
   Box(
     modifier = Modifier
-      .size(18.dp)
+      .size(20.dp)
       .clip(CircleShape)
       .background(color)
-      .border(1.dp, Color.Black.copy(alpha = 0.15f), CircleShape)
+      .border(1.dp, Color.Black.copy(alpha = 0.18f), CircleShape)
       .clickable { onClick() }
   )
 }

@@ -82,8 +82,20 @@ class PageNestViewModel(application: Application) : AndroidViewModel(application
   private val _currentPdfBitmap = MutableStateFlow<Bitmap?>(null)
   val currentPdfBitmap: StateFlow<Bitmap?> = _currentPdfBitmap.asStateFlow()
 
+  private val _nextPdfBitmap = MutableStateFlow<Bitmap?>(null)
+  val nextPdfBitmap: StateFlow<Bitmap?> = _nextPdfBitmap.asStateFlow()
+
+  private val _prevPdfBitmap = MutableStateFlow<Bitmap?>(null)
+  val prevPdfBitmap: StateFlow<Bitmap?> = _prevPdfBitmap.asStateFlow()
+
   private val _currentPageText = MutableStateFlow<BookPageTextEntity?>(null)
   val currentPageText: StateFlow<BookPageTextEntity?> = _currentPageText.asStateFlow()
+
+  private val _nextPageText = MutableStateFlow<BookPageTextEntity?>(null)
+  val nextPageText: StateFlow<BookPageTextEntity?> = _nextPageText.asStateFlow()
+
+  private val _prevPageText = MutableStateFlow<BookPageTextEntity?>(null)
+  val prevPageText: StateFlow<BookPageTextEntity?> = _prevPageText.asStateFlow()
 
   private val _readingMode = MutableStateFlow(ReadingMode.CLEAN_READER)
   val readingMode: StateFlow<ReadingMode> = _readingMode.asStateFlow()
@@ -290,6 +302,56 @@ class PageNestViewModel(application: Application) : AndroidViewModel(application
       // Render PDF page for original PDF mode
       val bitmap = PdfManager.renderPdfPage(book.filePath, pageIndex, targetWidth = 1080)
       _currentPdfBitmap.value = bitmap
+
+      // Prefetch Next Page (pageIndex + 1)
+      if (pageIndex + 1 < book.totalPages) {
+        val nextNum = pageIndex + 2
+        var nextText = repository.getPageContent(book.id, nextNum)
+        if (nextText == null || nextText.textContent.isBlank() || nextText.textContent.contains("Original PDF layout mode recommended")) {
+          val extracted = PdfManager.extractPageText(getApplication(), book.filePath, nextNum)
+          if (extracted.isNotBlank()) {
+            val paragraphs = extracted.split("\n\n").filter { it.isNotBlank() }
+            nextText = BookPageTextEntity(
+              id = 0,
+              bookId = book.id,
+              pageNumber = nextNum,
+              chapterTitle = "Page $nextNum",
+              textContent = extracted,
+              paragraphCount = paragraphs.size.coerceAtLeast(1)
+            )
+          }
+        }
+        _nextPageText.value = nextText
+        _nextPdfBitmap.value = PdfManager.renderPdfPage(book.filePath, pageIndex + 1, targetWidth = 1080)
+      } else {
+        _nextPageText.value = null
+        _nextPdfBitmap.value = null
+      }
+
+      // Prefetch Previous Page (pageIndex - 1)
+      if (pageIndex - 1 >= 0) {
+        val prevNum = pageIndex
+        var prevText = repository.getPageContent(book.id, prevNum)
+        if (prevText == null || prevText.textContent.isBlank() || prevText.textContent.contains("Original PDF layout mode recommended")) {
+          val extracted = PdfManager.extractPageText(getApplication(), book.filePath, prevNum)
+          if (extracted.isNotBlank()) {
+            val paragraphs = extracted.split("\n\n").filter { it.isNotBlank() }
+            prevText = BookPageTextEntity(
+              id = 0,
+              bookId = book.id,
+              pageNumber = prevNum,
+              chapterTitle = "Page $prevNum",
+              textContent = extracted,
+              paragraphCount = paragraphs.size.coerceAtLeast(1)
+            )
+          }
+        }
+        _prevPageText.value = prevText
+        _prevPdfBitmap.value = PdfManager.renderPdfPage(book.filePath, pageIndex - 1, targetWidth = 1080)
+      } else {
+        _prevPageText.value = null
+        _prevPdfBitmap.value = null
+      }
     }
   }
 
@@ -435,10 +497,10 @@ class PageNestViewModel(application: Application) : AndroidViewModel(application
     if (trimmed.isEmpty()) return
 
     viewModelScope.launch {
-      // Find existing non-bookmark annotation on this page matching text
+      // Find existing non-bookmark annotation on this page matching exact text
       val existing = allAnnotations.value.firstOrNull {
         it.bookId == book.id && it.pageNumber == pageNum && it.type != "BOOKMARK" &&
-          (it.selectedText.trim() == trimmed || it.selectedText.contains(trimmed) || trimmed.contains(it.selectedText))
+          it.selectedText.trim().equals(trimmed, ignoreCase = true)
       }
 
       if (existing != null) {
@@ -473,7 +535,9 @@ class PageNestViewModel(application: Application) : AndroidViewModel(application
     viewModelScope.launch {
       val existing = allAnnotations.value.firstOrNull {
         it.bookId == book.id && it.pageNumber == pageNum && it.type != "BOOKMARK" &&
-          (it.selectedText.trim() == trimmed || it.selectedText.contains(trimmed) || trimmed.contains(it.selectedText))
+          (it.selectedText.trim().equals(trimmed, ignoreCase = true) ||
+           (it.selectedText.contains(trimmed, ignoreCase = true) && trimmed.length >= 4) ||
+           (trimmed.contains(it.selectedText, ignoreCase = true) && it.selectedText.length >= 4))
       }
       if (existing != null) {
         repository.deleteAnnotation(existing.id)
