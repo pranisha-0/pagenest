@@ -41,6 +41,12 @@ interface BookDao {
   @Query("UPDATE books SET title = :newTitle WHERE id = :bookId")
   suspend fun renameBook(bookId: String, newTitle: String)
 
+  @Query("SELECT * FROM books WHERE isSample = 1 OR id IN ('atomic_habits', 'psychology_of_money', 'dopamine_nation')")
+  suspend fun getSampleBooks(): List<BookEntity>
+
+  @Query("DELETE FROM books WHERE isSample = 1 OR id IN ('atomic_habits', 'psychology_of_money', 'dopamine_nation')")
+  suspend fun deleteSampleBooks()
+
   @Delete
   suspend fun deleteBook(book: BookEntity)
 

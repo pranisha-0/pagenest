@@ -4,7 +4,6 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,10 +22,14 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -34,6 +37,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -44,9 +48,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,6 +68,8 @@ fun LibraryScreen(
   val books by viewModel.allBooks.collectAsState()
   val libraryFilter by viewModel.libraryFilter.collectAsState()
   val searchQuery by viewModel.searchQuery.collectAsState()
+
+  val keyboardController = LocalSoftwareKeyboardController.current
 
   val pdfPickerLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.OpenDocument()
@@ -100,7 +108,7 @@ fun LibraryScreen(
 
     Spacer(modifier = Modifier.height(12.dp))
 
-    // Search Bar
+    // Functional Search Bar with Clear Icon and Keyboard Search
     OutlinedTextField(
       value = searchQuery,
       onValueChange = { viewModel.setSearchQuery(it) },
@@ -112,7 +120,20 @@ fun LibraryScreen(
           tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
       },
+      trailingIcon = {
+        if (searchQuery.isNotBlank()) {
+          IconButton(onClick = { viewModel.setSearchQuery("") }) {
+            Icon(
+              imageVector = Icons.Default.Clear,
+              contentDescription = "Clear search",
+              tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+          }
+        }
+      },
       singleLine = true,
+      keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+      keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
       shape = RoundedCornerShape(14.dp),
       colors = OutlinedTextFieldDefaults.colors(
         unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -161,7 +182,7 @@ fun LibraryScreen(
     Spacer(modifier = Modifier.height(16.dp))
 
     if (filteredBooks.isEmpty()) {
-      // Empty State: "No PDFs imported" clickable to search/add PDF
+      // Empty State: "No books found" or "No PDFs imported"
       Box(
         modifier = Modifier
           .fillMaxSize()
@@ -177,7 +198,10 @@ fun LibraryScreen(
           ),
           modifier = Modifier
             .fillMaxWidth()
-            .clickable { pdfPickerLauncher.launch(arrayOf("application/pdf")) }
+            .clickable {
+              if (searchQuery.isNotBlank()) viewModel.setSearchQuery("")
+              else pdfPickerLauncher.launch(arrayOf("application/pdf"))
+            }
             .testTag("library_empty_import_card")
         ) {
           Column(
@@ -194,7 +218,7 @@ fun LibraryScreen(
               contentAlignment = Alignment.Center
             ) {
               Icon(
-                imageVector = Icons.Default.PictureAsPdf,
+                imageVector = if (searchQuery.isNotBlank()) Icons.Default.Search else Icons.Default.PictureAsPdf,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(32.dp)
@@ -204,7 +228,11 @@ fun LibraryScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-              text = if (libraryFilter == "All") "No PDFs Imported" else "No $libraryFilter Books",
+              text = when {
+                searchQuery.isNotBlank() -> "No Books Matching \"$searchQuery\""
+                books.isEmpty() -> "Your library is empty. Upload a PDF to get started."
+                else -> "No $libraryFilter Books"
+              },
               style = MaterialTheme.typography.titleLarge.copy(
                 fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.Bold
@@ -215,7 +243,8 @@ fun LibraryScreen(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-              text = "Tap to search and add your PDF files directly from your device.",
+              text = if (searchQuery.isNotBlank()) "Tap to clear the search filter or try searching another term."
+              else "Import your PDF books or documents to read, take notes, and listen.",
               style = MaterialTheme.typography.bodyMedium.copy(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -226,19 +255,29 @@ fun LibraryScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             Button(
-              onClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) },
+              onClick = {
+                if (searchQuery.isNotBlank()) viewModel.setSearchQuery("")
+                else pdfPickerLauncher.launch(arrayOf("application/pdf"))
+              },
               shape = RoundedCornerShape(16.dp),
               colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
               modifier = Modifier
                 .height(48.dp)
                 .testTag("library_add_pdf_btn")
             ) {
-              Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-              Spacer(modifier = Modifier.width(8.dp))
-              Text(
-                text = "Add Your PDF",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-              )
+              if (searchQuery.isNotBlank()) {
+                Text(
+                  text = "Clear Search",
+                  style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                )
+              } else {
+                Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                  text = "Upload PDF",
+                  style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                )
+              }
             }
           }
         }
@@ -257,8 +296,7 @@ fun LibraryScreen(
             book = book,
             onClick = { viewModel.openBook(book) },
             onAudioClick = {
-              viewModel.openBook(book)
-              viewModel.playCurrentBookAudio()
+              viewModel.playBookAudio(book, openFullPlayer = true)
             },
             onDeleteClick = { viewModel.deleteBook(book.id) },
             onRenameClick = { newTitle -> viewModel.renameBook(book.id, newTitle) }

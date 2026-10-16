@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -282,7 +283,7 @@ fun AudioPlayerScreen(
           colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
           modifier = Modifier
             .fillMaxWidth()
-            .height(110.dp)
+            .heightIn(min = 100.dp, max = 160.dp)
             .padding(horizontal = 4.dp)
         ) {
           Box(

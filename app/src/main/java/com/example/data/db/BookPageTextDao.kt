@@ -21,8 +21,11 @@ interface BookPageTextDao {
   @Query("SELECT * FROM book_pages WHERE bookId = :bookId AND pageNumber = :page LIMIT 1")
   suspend fun getPageSync(bookId: String, page: Int): BookPageTextEntity?
 
-  @Query("SELECT * FROM book_pages WHERE bookId = :bookId AND textContent LIKE '%' || :query || '%'")
+  @Query("SELECT * FROM book_pages WHERE bookId = :bookId AND textContent LIKE '%' || :query || '%' ORDER BY pageNumber ASC")
   suspend fun searchInBook(bookId: String, query: String): List<BookPageTextEntity>
+
+  @Query("SELECT * FROM book_pages WHERE textContent LIKE '%' || :query || '%' ORDER BY bookId, pageNumber ASC LIMIT 50")
+  suspend fun searchAcrossAllBooks(query: String): List<BookPageTextEntity>
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertPage(page: BookPageTextEntity)

@@ -20,5 +20,6 @@ data class BookEntity(
   val isSample: Boolean = false,
   val category: String = "All", // "Reading", "Finished", "All"
   val totalReadingSeconds: Long = 0L,
-  val description: String = ""
+  val description: String = "",
+  val originalFileName: String = ""
 )

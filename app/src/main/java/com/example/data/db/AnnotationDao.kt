@@ -38,6 +38,9 @@ interface AnnotationDao {
   @Query("DELETE FROM annotations WHERE id = :id")
   suspend fun deleteAnnotationById(id: String)
 
+  @Query("DELETE FROM annotations WHERE bookId = :bookId")
+  suspend fun deleteAnnotationsForBook(bookId: String)
+
   @Query("DELETE FROM annotations WHERE bookId = :bookId AND pageNumber = :page AND type = 'BOOKMARK'")
   suspend fun removeBookmark(bookId: String, page: Int)
 

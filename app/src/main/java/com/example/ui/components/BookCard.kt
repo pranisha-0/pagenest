@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -34,7 +36,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +70,9 @@ fun BookCard(
   modifier: Modifier = Modifier
 ) {
   var showMenu by remember { mutableStateOf(false) }
+  var showRenameDialog by remember { mutableStateOf(false) }
+  var editedTitle by remember(book.title, showRenameDialog) { mutableStateOf(book.title) }
+  var isTitleError by remember { mutableStateOf(false) }
 
   val coverBitmap = remember(book.coverPath) {
     book.coverPath?.let { path ->
@@ -114,7 +121,6 @@ fun BookCard(
               .background(baseColor)
               .padding(10.dp)
           ) {
-            // Book spine accent line
             Box(
               modifier = Modifier
                 .align(Alignment.CenterStart)
@@ -229,6 +235,16 @@ fun BookCard(
           onDismissRequest = { showMenu = false }
         ) {
           DropdownMenuItem(
+            text = { Text("Rename Book") },
+            onClick = {
+              showMenu = false
+              editedTitle = book.title
+              isTitleError = false
+              showRenameDialog = true
+            },
+            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+          )
+          DropdownMenuItem(
             text = { Text("Listen to Audiobook") },
             onClick = {
               showMenu = false
@@ -285,6 +301,76 @@ fun BookCard(
         )
       )
     }
+  }
+
+  // Rename Book Dialog
+  if (showRenameDialog) {
+    AlertDialog(
+      onDismissRequest = { showRenameDialog = false },
+      title = {
+        Text(
+          text = "Rename Book",
+          style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+        )
+      },
+      text = {
+        Column(modifier = Modifier.fillMaxWidth()) {
+          if (book.originalFileName.isNotBlank()) {
+            Text(
+              text = "Original file: ${book.originalFileName}",
+              style = MaterialTheme.typography.bodySmall.copy(
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp
+              )
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+          }
+          OutlinedTextField(
+            value = editedTitle,
+            onValueChange = {
+              editedTitle = it
+              isTitleError = it.trim().isEmpty()
+            },
+            label = { Text("Book Title") },
+            placeholder = { Text("Enter book title") },
+            singleLine = true,
+            isError = isTitleError,
+            supportingText = {
+              if (isTitleError) {
+                Text("Title cannot be empty")
+              }
+            },
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("rename_title_input_${book.id}")
+          )
+        }
+      },
+      confirmButton = {
+        Button(
+          onClick = {
+            val trimmed = editedTitle.trim()
+            if (trimmed.isNotEmpty()) {
+              onRenameClick(trimmed)
+              showRenameDialog = false
+            } else {
+              isTitleError = true
+            }
+          },
+          modifier = Modifier.testTag("rename_save_btn_${book.id}")
+        ) {
+          Text("Save")
+        }
+      },
+      dismissButton = {
+        TextButton(
+          onClick = { showRenameDialog = false },
+          modifier = Modifier.testTag("rename_cancel_btn_${book.id}")
+        ) {
+          Text("Cancel")
+        }
+      }
+    )
   }
 }
 

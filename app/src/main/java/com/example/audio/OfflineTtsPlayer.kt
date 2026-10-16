@@ -45,6 +45,8 @@ class OfflineTtsPlayer private constructor(private val context: Context) : TextT
   private var isTtsInitialized = false
   private var currentUtteranceId: String? = null
 
+  var onPageFinishedListener: (() -> Unit)? = null
+
   companion object {
     @Volatile
     private var INSTANCE: OfflineTtsPlayer? = null
@@ -140,7 +142,6 @@ class OfflineTtsPlayer private constructor(private val context: Context) : TextT
         tts?.voices?.firstOrNull { it.name == voiceId }?.let {
           tts?.voice = it
         } ?: run {
-          // If custom preset, set locale
           when (voiceId) {
             "en_us_natural_1", "en_us_natural_2" -> {
               tts?.language = Locale.US
@@ -240,6 +241,10 @@ class OfflineTtsPlayer private constructor(private val context: Context) : TextT
     }
   }
 
+  fun updateBookTitle(newTitle: String) {
+    _playbackState.value = _playbackState.value.copy(bookTitle = newTitle)
+  }
+
   fun play() {
     val state = _playbackState.value
     if (state.paragraphs.isEmpty()) return
@@ -283,7 +288,7 @@ class OfflineTtsPlayer private constructor(private val context: Context) : TextT
         playCurrentParagraph()
       }
     } else {
-      pause()
+      onPageFinishedListener?.invoke() ?: pause()
     }
   }
 
@@ -300,18 +305,24 @@ class OfflineTtsPlayer private constructor(private val context: Context) : TextT
   }
 
   fun skipSeconds(seconds: Int) {
-    // 15 seconds corresponds roughly to 35-40 words or ~1-2 paragraphs
     val state = _playbackState.value
     val paragraphsToSkip = (seconds / 15).coerceAtLeast(1)
     if (seconds > 0) {
-      val newIndex = (state.currentParagraphIndex + paragraphsToSkip).coerceAtMost(state.paragraphs.size - 1)
-      _playbackState.value = state.copy(currentParagraphIndex = newIndex)
+      if (state.currentParagraphIndex + paragraphsToSkip >= state.paragraphs.size) {
+        onPageFinishedListener?.invoke()
+      } else {
+        val newIndex = (state.currentParagraphIndex + paragraphsToSkip).coerceAtMost(state.paragraphs.size - 1)
+        _playbackState.value = state.copy(currentParagraphIndex = newIndex)
+        if (state.isPlaying) {
+          playCurrentParagraph()
+        }
+      }
     } else {
       val newIndex = (state.currentParagraphIndex - paragraphsToSkip).coerceAtLeast(0)
       _playbackState.value = state.copy(currentParagraphIndex = newIndex)
-    }
-    if (state.isPlaying) {
-      playCurrentParagraph()
+      if (state.isPlaying) {
+        playCurrentParagraph()
+      }
     }
   }
 
@@ -376,6 +387,7 @@ class OfflineTtsPlayer private constructor(private val context: Context) : TextT
       playCurrentParagraph()
     } else {
       _playbackState.value = state.copy(isPlaying = false)
+      onPageFinishedListener?.invoke()
     }
   }
 

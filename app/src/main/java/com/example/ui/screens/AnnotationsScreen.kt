@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -38,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -70,6 +72,7 @@ fun AnnotationsScreen(
   val allBooks by viewModel.allBooks.collectAsState()
   val filter by viewModel.annotationFilter.collectAsState()
   val searchQuery by viewModel.annotationSearchQuery.collectAsState()
+  var editingAnnotation by remember { mutableStateOf<AnnotationEntity?>(null) }
 
   val filteredAnnotations = annotations.filter { ann ->
     val matchesFilter = when (filter) {
@@ -334,6 +337,14 @@ fun AnnotationsScreen(
                   leadingIcon = { Icon(Icons.Default.OpenInNew, contentDescription = null) }
                 )
                 DropdownMenuItem(
+                  text = { Text(if (item.noteContent.isNotBlank()) "Edit Note" else "Add Note") },
+                  onClick = {
+                    showMenu = false
+                    editingAnnotation = item
+                  },
+                  leadingIcon = { Icon(Icons.Default.EditNote, contentDescription = null) }
+                )
+                DropdownMenuItem(
                   text = { Text("Delete") },
                   onClick = {
                     showMenu = false
@@ -347,5 +358,49 @@ fun AnnotationsScreen(
         }
       }
     }
+  }
+
+  // Edit Note Dialog
+  if (editingAnnotation != null) {
+    var noteInput by remember(editingAnnotation) { mutableStateOf(editingAnnotation?.noteContent ?: "") }
+    AlertDialog(
+      onDismissRequest = { editingAnnotation = null },
+      title = { Text(if (editingAnnotation?.noteContent?.isNotBlank() == true) "Edit Note" else "Add Note") },
+      text = {
+        Column(modifier = Modifier.fillMaxWidth()) {
+          Text(
+            text = "\"${editingAnnotation?.selectedText}\"",
+            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+          )
+          Spacer(modifier = Modifier.height(10.dp))
+          OutlinedTextField(
+            value = noteInput,
+            onValueChange = { noteInput = it },
+            placeholder = { Text("Type your note or thought here...") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3
+          )
+        }
+      },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            editingAnnotation?.let { ann ->
+              viewModel.updateAnnotation(ann.id, noteInput)
+            }
+            editingAnnotation = null
+          }
+        ) {
+          Text("Save")
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { editingAnnotation = null }) {
+          Text("Cancel")
+        }
+      }
+    )
   }
 }

@@ -22,10 +22,13 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -39,6 +42,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -52,9 +56,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -73,6 +79,9 @@ fun HomeScreen(
   val libraryFilter by viewModel.libraryFilter.collectAsState()
   val searchQuery by viewModel.searchQuery.collectAsState()
   val isImporting by viewModel.isImporting.collectAsState()
+  val globalPageMatches by viewModel.globalSearchPageMatches.collectAsState()
+
+  val keyboardController = LocalSoftwareKeyboardController.current
 
   // PDF File Picker Launcher
   val pdfPickerLauncher = rememberLauncherForActivityResult(
@@ -103,7 +112,7 @@ fun HomeScreen(
       .testTag("home_screen_lazy_column"),
     contentPadding = PaddingValues(bottom = 90.dp)
   ) {
-    // 1. Top Brand Header ("Unfold" and "Read. Listen. Download.") - Removed 100% offline badge per request
+    // 1. Top Brand Header ("Unfold" and "Read. Listen. Download.")
     item {
       Column(
         modifier = Modifier
@@ -131,11 +140,11 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Search Bar
+        // Search Bar with Clear Button and Search Action
         OutlinedTextField(
           value = searchQuery,
           onValueChange = { viewModel.setSearchQuery(it) },
-          placeholder = { Text("Search your books...", style = MaterialTheme.typography.bodyMedium) },
+          placeholder = { Text("Search your books and text...", style = MaterialTheme.typography.bodyMedium) },
           leadingIcon = {
             Icon(
               imageVector = Icons.Default.Search,
@@ -143,7 +152,20 @@ fun HomeScreen(
               tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
           },
+          trailingIcon = {
+            if (searchQuery.isNotBlank()) {
+              IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                Icon(
+                  imageVector = Icons.Default.Clear,
+                  contentDescription = "Clear search",
+                  tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+              }
+            }
+          },
           singleLine = true,
+          keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+          keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
           shape = RoundedCornerShape(14.dp),
           colors = OutlinedTextFieldDefaults.colors(
             unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -155,10 +177,120 @@ fun HomeScreen(
             .fillMaxWidth()
             .testTag("search_books_input")
         )
+
+        // Live Search Results Dropdown / Card if search is active
+        if (searchQuery.isNotBlank()) {
+          Spacer(modifier = Modifier.height(10.dp))
+          Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Text(
+                  text = "Search Results for \"$searchQuery\"",
+                  style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                  )
+                )
+                Text(
+                  text = "${filteredBooks.size} books • ${globalPageMatches.size} pages",
+                  style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                )
+              }
+              Spacer(modifier = Modifier.height(8.dp))
+
+              if (filteredBooks.isEmpty() && globalPageMatches.isEmpty()) {
+                Text(
+                  text = "No matching books or text passages found.",
+                  style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                )
+              } else {
+                // Matching Books
+                if (filteredBooks.isNotEmpty()) {
+                  Text(
+                    text = "Books (${filteredBooks.size}):",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                  )
+                  filteredBooks.forEach { b ->
+                    Row(
+                      modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                          keyboardController?.hide()
+                          viewModel.openBook(b)
+                        }
+                        .padding(vertical = 6.dp),
+                      verticalAlignment = Alignment.CenterVertically
+                    ) {
+                      Icon(Icons.Default.AutoStories, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                      Spacer(modifier = Modifier.width(8.dp))
+                      Text(b.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                      Spacer(modifier = Modifier.width(6.dp))
+                      Text("by ${b.author}", style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
+                    }
+                  }
+                }
+
+                // Matching Content in Pages
+                if (globalPageMatches.isNotEmpty()) {
+                  Spacer(modifier = Modifier.height(8.dp))
+                  Text(
+                    text = "Text Found in Pages (${globalPageMatches.size}):",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                  )
+                  globalPageMatches.take(5).forEach { match ->
+                    val matchingBook = books.find { it.id == match.bookId }
+                    val bookTitle = matchingBook?.title ?: "Book"
+                    // Extract snippet around the matched query
+                    val qIndex = match.textContent.indexOf(searchQuery, ignoreCase = true)
+                    val start = (qIndex - 30).coerceAtLeast(0)
+                    val end = (qIndex + searchQuery.length + 50).coerceAtMost(match.textContent.length)
+                    val snippet = if (qIndex >= 0) "..." + match.textContent.substring(start, end).replace("\n", " ") + "..." else match.textContent.take(80)
+
+                    Column(
+                      modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                          keyboardController?.hide()
+                          matchingBook?.let { viewModel.openBook(it, match.pageNumber) }
+                        }
+                        .padding(vertical = 6.dp)
+                    ) {
+                      Text(
+                        text = "$bookTitle • Page ${match.pageNumber}",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                          fontWeight = FontWeight.Bold,
+                          color = MaterialTheme.colorScheme.primary
+                        )
+                      )
+                      Text(
+                        text = snippet,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                          fontSize = 11.sp
+                        ),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                      )
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
 
-    // 2. Feature Action Circular Pills (Removed Offline Access; Renamed Listen (AI Voice) -> Listen)
+    // 2. Feature Action Circular Pills
     item {
       Row(
         modifier = Modifier
@@ -190,8 +322,7 @@ fun HomeScreen(
           tag = "listen_voice_btn",
           onClick = {
             if (books.isNotEmpty()) {
-              viewModel.openBook(books.first())
-              viewModel.playCurrentBookAudio()
+              viewModel.playBookAudio(books.first(), openFullPlayer = true)
             } else {
               pdfPickerLauncher.launch(arrayOf("application/pdf"))
             }
@@ -241,7 +372,7 @@ fun HomeScreen(
       }
     }
 
-    // 3. Continue Reading / Listen Section (Replaced Atomic Habits with Listen prompt when empty)
+    // 3. Continue Reading / Listen Section
     item {
       Column(
         modifier = Modifier
@@ -387,11 +518,11 @@ fun HomeScreen(
 
               Column(modifier = Modifier.weight(1f)) {
                 Text(
-                  text = "Listen to your books",
+                  text = "Your library is empty",
                   style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                 )
                 Text(
-                  text = "Import a PDF to listen with natural offline voice narration",
+                  text = "Upload a PDF to get started with reading and audiobooks",
                   style = MaterialTheme.typography.bodySmall.copy(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp
@@ -408,7 +539,7 @@ fun HomeScreen(
                   .padding(horizontal = 14.dp, vertical = 8.dp)
               ) {
                 Text(
-                  text = "Add PDF",
+                  text = "Upload PDF",
                   style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimary
@@ -475,7 +606,7 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(10.dp))
 
         if (filteredBooks.isEmpty()) {
-          // Empty State Card: "No PDFs Imported - Add Your PDF"
+          // Empty State Card
           Card(
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -486,7 +617,10 @@ fun HomeScreen(
             modifier = Modifier
               .fillMaxWidth()
               .padding(horizontal = 20.dp, vertical = 6.dp)
-              .clickable { pdfPickerLauncher.launch(arrayOf("application/pdf")) }
+              .clickable {
+                if (searchQuery.isNotBlank()) viewModel.setSearchQuery("")
+                else pdfPickerLauncher.launch(arrayOf("application/pdf"))
+              }
               .testTag("empty_library_card")
           ) {
             Column(
@@ -503,7 +637,7 @@ fun HomeScreen(
                 contentAlignment = Alignment.Center
               ) {
                 Icon(
-                  imageVector = Icons.Default.PictureAsPdf,
+                  imageVector = if (searchQuery.isNotBlank()) Icons.Default.Search else Icons.Default.PictureAsPdf,
                   contentDescription = null,
                   tint = MaterialTheme.colorScheme.primary,
                   modifier = Modifier.size(28.dp)
@@ -511,15 +645,16 @@ fun HomeScreen(
               }
               Spacer(modifier = Modifier.height(12.dp))
               Text(
-                text = "No PDFs Imported",
+                text = if (searchQuery.isNotBlank()) "No books matching \"$searchQuery\"" else "Your library is empty. Upload a PDF to get started.",
                 style = MaterialTheme.typography.titleMedium.copy(
                   fontFamily = FontFamily.Serif,
                   fontWeight = FontWeight.Bold
-                )
+                ),
+                textAlign = TextAlign.Center
               )
-              Spacer(modifier = Modifier.height(4.dp))
+              Spacer(modifier = Modifier.height(6.dp))
               Text(
-                text = "Tap to search and add your PDF from your device",
+                text = if (searchQuery.isNotBlank()) "Tap to clear search or try a different title." else "Import a PDF book or document to read and listen.",
                 style = MaterialTheme.typography.bodySmall.copy(
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                   textAlign = TextAlign.Center
@@ -528,14 +663,21 @@ fun HomeScreen(
               )
               Spacer(modifier = Modifier.height(14.dp))
               Button(
-                onClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) },
+                onClick = {
+                  if (searchQuery.isNotBlank()) viewModel.setSearchQuery("")
+                  else pdfPickerLauncher.launch(arrayOf("application/pdf"))
+                },
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 modifier = Modifier.testTag("add_your_pdf_btn")
               ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Add Your PDF")
+                if (searchQuery.isNotBlank()) {
+                  Text("Clear Search")
+                } else {
+                  Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text("Upload PDF")
+                }
               }
             }
           }
@@ -551,8 +693,7 @@ fun HomeScreen(
                 book = book,
                 onClick = { viewModel.openBook(book) },
                 onAudioClick = {
-                  viewModel.openBook(book)
-                  viewModel.playCurrentBookAudio()
+                  viewModel.playBookAudio(book, openFullPlayer = true)
                 },
                 onDeleteClick = { viewModel.deleteBook(book.id) },
                 onRenameClick = { newTitle -> viewModel.renameBook(book.id, newTitle) }
@@ -569,7 +710,7 @@ fun HomeScreen(
       }
     }
 
-    // 5. Recently Added Section (only shown when user has added multiple books)
+    // 5. Recently Added Section
     if (books.size > 1) {
       item {
         Column(
@@ -596,8 +737,7 @@ fun HomeScreen(
                 book = book,
                 onClick = { viewModel.openBook(book) },
                 onAudioClick = {
-                  viewModel.openBook(book)
-                  viewModel.playCurrentBookAudio()
+                  viewModel.playBookAudio(book, openFullPlayer = true)
                 },
                 onDeleteClick = { viewModel.deleteBook(book.id) },
                 onRenameClick = { newTitle -> viewModel.renameBook(book.id, newTitle) }
